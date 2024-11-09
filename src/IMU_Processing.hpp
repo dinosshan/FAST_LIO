@@ -275,15 +275,15 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
       static tf2_ros::StaticTransformBroadcaster static_br;
       geometry_msgs::TransformStamped msg;
       msg.header.stamp = v_imu.back()->header.stamp;
-      msg.header.frame_id = "camera_init";
+      msg.header.frame_id = "gravity_init";
       msg.transform.translation.x = 0.0;
       msg.transform.translation.y = 0.0;
       msg.transform.translation.z = 0.0;
-      msg.transform.rotation.w = grav_q_init.w();
-      msg.transform.rotation.x = grav_q_init.x();
-      msg.transform.rotation.y = grav_q_init.y();
-      msg.transform.rotation.z = grav_q_init.z();
-      msg.child_frame_id = "gravity_init";
+      msg.transform.rotation.w = grav_q_init.inverse().w();
+      msg.transform.rotation.x = grav_q_init.inverse().x();
+      msg.transform.rotation.y = grav_q_init.inverse().y();
+      msg.transform.rotation.z = grav_q_init.inverse().z();
+      msg.child_frame_id = "camera_init";
       static_br.sendTransform(msg);
     }
   }
