@@ -61,6 +61,9 @@ class ImuProcess
   V3D cov_bias_acc;
   double first_lidar_time;
 
+  Eigen::Quaterniond grav_q_init_inv;
+  bool grav_q_init_inv_set = false;
+
  private:
   void IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, int &N);
   void UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, PointCloudXYZI &pcl_in_out);
@@ -268,6 +271,8 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
             "Pinned gravity_init after " << cloud_cnt << " frames.");
         grav_q_init = grav_q;
         grav_is_initialized = true;
+        grav_q_init_inv = grav_q.inverse();
+        grav_q_init_inv_set = true;
       }
     }
     // Republish grav initialization as static TF

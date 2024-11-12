@@ -581,13 +581,26 @@ void set_posestamp(T & out)
     
 }
 
-void publish_odometry(const ros::Publisher & pubOdomAftMapped)
+void publish_odometry(const ros::Publisher & pubOdomAftMapped, Eigen::Quaterniond & grav_q_init_inv)
 {
     odomAftMapped.header.frame_id = "camera_init";
     odomAftMapped.child_frame_id = "body";
     odomAftMapped.header.stamp = ros::Time().fromSec(lidar_end_time);// ros::Time().fromSec(lidar_end_time);
     set_posestamp(odomAftMapped.pose);
     pubOdomAftMapped.publish(odomAftMapped);
+
+    // Publish a static transform between camera_init_gravity and camera_init
+    static tf2_ros::StaticTransformBroadcaster static_br;
+    geometry_msgs::TransformStamped msg;
+    msg.header.stamp = ros::Time().fromSec(lidar_end_time);
+    msg.header.frame_id = "camera_init_gravity";
+    msg.transform.rotation.x = grav_q_init_inv.x();
+    msg.transform.rotation.y = grav_q_init_inv.y();
+    msg.transform.rotation.z = grav_q_init_inv.z();
+    msg.transform.rotation.w = grav_q_init_inv.w();
+    msg.child_frame_id = "camera_init";
+    static_br.sendTransform(msg);
+
     auto P = kf.get_P();
     for (int i = 0; i < 6; i ++)
     {
@@ -962,7 +975,8 @@ int main(int argc, char** argv)
             double t_update_end = omp_get_wtime();
 
             /******* Publish odometry *******/
-            publish_odometry(pubOdomAftMapped);
+            if (p_imu->grav_q_init_inv_set)
+                publish_odometry(pubOdomAftMapped, p_imu->grav_q_init_inv);
 
             /*** add the feature points to map kdtree ***/
             t3 = omp_get_wtime();
@@ -970,9 +984,9 @@ int main(int argc, char** argv)
             t5 = omp_get_wtime();
             
             /******* Publish points *******/
-            if (path_en)                         publish_path(pubPath);
-            if (scan_pub_en || pcd_save_en)      publish_frame_world(pubLaserCloudFull);
-            if (scan_pub_en && scan_body_pub_en) publish_frame_body(pubLaserCloudFull_body);
+            if (path_en && p_imu->grav_q_init_inv_set)              publish_path(pubPath);
+            if ((scan_pub_en || pcd_save_en) && dense_pub_en)       publish_frame_world(pubLaserCloudFull);
+            if ((scan_pub_en && scan_body_pub_en) && dense_pub_en)  publish_frame_body(pubLaserCloudFull_body);
             // publish_effect_world(pubLaserCloudEffect);
             // publish_map(pubLaserCloudMap);
 
