@@ -59,6 +59,7 @@
 #include <livox_ros_driver2/CustomMsg.h>
 #include "preprocess.h"
 #include <ikd-Tree/ikd_Tree.h>
+#include <rtabmap_msgs/OdomInfo.h>
 
 #define INIT_TIME           (0.1)
 #define LASER_POINT_COV     (0.001)
@@ -133,6 +134,7 @@ vect3 pos_lid;
 
 nav_msgs::Path path;
 nav_msgs::Odometry odomAftMapped;
+rtabmap_msgs::OdomInfo odomInfo;
 geometry_msgs::Quaternion geoQuat;
 geometry_msgs::PoseStamped msg_body_pose;
 
@@ -627,6 +629,64 @@ void publish_odometry(const ros::Publisher & pubOdomAftMapped, Eigen::Quaternion
     br.sendTransform( tf::StampedTransform( transform, odomAftMapped.header.stamp, "camera_init", "body" ) );
 }
 
+void publish_odometry_info(const ros::Publisher & pubOdomAftMapped, const ros::Publisher & pubOdomInfo)
+{
+    // Publish odom info
+    odomInfo.header = odomAftMapped.header;
+    odomInfo.matches = effct_feat_num;
+    odomInfo.inliers = effct_feat_num;
+    odomInfo.icpInliersRatio = (float)effct_feat_num / feats_down_size;
+    odomInfo.icpRotation = euler_cur.norm();
+    odomInfo.icpTranslation = state_point.pos.norm();
+    odomInfo.icpCorrespondences = effct_feat_num;
+    odomInfo.icpStructuralComplexity = 0;
+
+    // Copy covariance
+    for(int i = 0; i < 36; ++i) {
+        odomInfo.covariance[i] = odomAftMapped.pose.covariance[i];
+    }
+
+    // Set features
+    odomInfo.features = feats_down_size;
+    odomInfo.localMapSize = ikdtree.size();
+    odomInfo.localScanMapSize = feats_down_body->points.size();
+    odomInfo.stamp = Measures.lidar_beg_time;
+    odomInfo.interval = Measures.lidar_end_time - Measures.lidar_beg_time;
+    odomInfo.distanceTravelled = total_distance;
+
+    // Set transform
+    odomInfo.transform.rotation = odomAftMapped.pose.pose.orientation;
+    odomInfo.transform.translation.x = odomAftMapped.pose.pose.position.x;
+    odomInfo.transform.translation.y = odomAftMapped.pose.pose.position.y;
+    odomInfo.transform.translation.z = odomAftMapped.pose.pose.position.z;
+
+    // Thresholds to set odom lost
+    int matches_thresh = 50;
+    float icpInliersRatio_thesh = 0.1;
+    float position_variance_thesh = 0.0001;
+    float rotation_variance_thresh = 0.0001;
+
+    // Set odominfo.lost based on inliers ratio
+    if (odomInfo.matches < matches_thresh || odomInfo.icpInliersRatio < icpInliersRatio_thesh) {
+        odomInfo.lost = true;
+        ROS_WARN("LOST: Too few inliers: Matches: %d, Inliers ratio: %f", odomInfo.matches, odomInfo.icpInliersRatio);
+    }
+
+    // Calculate sum of position and rotation variance
+    auto P = kf.get_P();
+    double position_variance = P(0, 0) + P(1, 1) + P(2, 2);
+    double rotation_variance = P(3, 3) + P(4, 4) + P(5, 5);
+
+    if (position_variance > position_variance_thesh || rotation_variance > position_variance_thesh) {
+        odomInfo.lost = true;
+        ROS_WARN("High variance: Position variance: %f, Rotation variance: %f", position_variance, rotation_variance);
+    }
+
+    // TODO: Add max speed check, and set odomInfo.lost to true if speed is too high
+
+    pubOdomInfo.publish(odomInfo);
+}
+
 void publish_path(const ros::Publisher pubPath)
 {
     set_posestamp(msg_body_pose);
@@ -862,6 +922,8 @@ int main(int argc, char** argv)
             ("/Laser_map", 100000);
     ros::Publisher pubOdomAftMapped = nh.advertise<nav_msgs::Odometry> 
             ("/Odometry", 100000);
+    ros::Publisher pubOdomInfo = nh.advertise<rtabmap_msgs::OdomInfo>
+            ("/Odometry_info", 100000);
     ros::Publisher pubPath          = nh.advertise<nav_msgs::Path> 
             ("/path", 100000);
 //------------------------------------------------------------------------------------------------------
@@ -882,6 +944,9 @@ int main(int argc, char** argv)
                 continue;
             }
 
+            publish_odometry_info(pubOdomAftMapped, pubOdomInfo);
+            odomInfo.lost = false;
+
             double t0,t1,t2,t3,t4,t5,match_start, solve_start, svd_time;
 
             match_time = 0;
@@ -898,6 +963,7 @@ int main(int argc, char** argv)
             if (feats_undistort->empty() || (feats_undistort == NULL))
             {
                 ROS_WARN("No point, skip this scan!\n");
+                odomInfo.lost = true;
                 continue;
             }
 
@@ -924,6 +990,7 @@ int main(int argc, char** argv)
                     }
                     ikdtree.Build(feats_down_world->points);
                 }
+                odomInfo.lost = true;
                 continue;
             }
             int featsFromMapNum = ikdtree.validnum();
@@ -935,6 +1002,7 @@ int main(int argc, char** argv)
             if (feats_down_size < 5)
             {
                 ROS_WARN("No point, skip this scan!\n");
+                odomInfo.lost = true;
                 continue;
             }
             
