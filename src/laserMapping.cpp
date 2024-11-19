@@ -132,6 +132,9 @@ esekfom::esekf<state_ikfom, 12, input_ikfom> kf;
 state_ikfom state_point;
 vect3 pos_lid;
 
+/*** Odometry loss detection ***/
+bool odometry_lost = false;
+
 nav_msgs::Path path;
 nav_msgs::Odometry odomAftMapped;
 rtabmap_msgs::OdomInfo odomInfo;
@@ -583,12 +586,39 @@ void set_posestamp(T & out)
     
 }
 
+bool is_odometry_lost()
+{
+    auto P = kf.get_P();
+    double position_variance = P(0, 0) + P(1, 1) + P(2, 2);
+    double rotation_variance = P(3, 3) + P(4, 4) + P(5, 5);
+    bool pose_variance_too_large = position_variance > 0.0001 || rotation_variance > 0.0001;
+    bool inliers_too_few = effct_feat_num < 50 || ((float)effct_feat_num / feats_down_size) < 0.1;
+
+    if (pose_variance_too_large) ROS_WARN("Pose variance too large: %lf, %lf", position_variance, rotation_variance);
+    if (inliers_too_few) ROS_WARN("Too few inliers: %d", effct_feat_num);
+
+    return inliers_too_few || pose_variance_too_large;
+}
+
 void publish_odometry(const ros::Publisher & pubOdomAftMapped, Eigen::Quaterniond & grav_q_init_inv)
 {
     odomAftMapped.header.frame_id = "camera_init";
     odomAftMapped.child_frame_id = "body";
     odomAftMapped.header.stamp = ros::Time().fromSec(lidar_end_time);// ros::Time().fromSec(lidar_end_time);
     set_posestamp(odomAftMapped.pose);
+
+    if (odometry_lost) {
+        for (int i = 0; i < 36; i++) odomAftMapped.pose.covariance[i] = 0;
+        for (int i = 0; i < 6; i++) odomAftMapped.pose.covariance[i*6 + i] = 9999;
+        odomAftMapped.pose.pose.position.x = 0;
+        odomAftMapped.pose.pose.position.y = 0;
+        odomAftMapped.pose.pose.position.z = 0;
+        odomAftMapped.pose.pose.orientation.x = 0;
+        odomAftMapped.pose.pose.orientation.y = 0;
+        odomAftMapped.pose.pose.orientation.z = 0;
+        odomAftMapped.pose.pose.orientation.w = 0;
+    }
+
     pubOdomAftMapped.publish(odomAftMapped);
 
     // Publish a static transform between camera_init_gravity and camera_init
@@ -660,27 +690,7 @@ void publish_odometry_info(const ros::Publisher & pubOdomAftMapped, const ros::P
     odomInfo.transform.translation.y = odomAftMapped.pose.pose.position.y;
     odomInfo.transform.translation.z = odomAftMapped.pose.pose.position.z;
 
-    // Thresholds to set odom lost
-    int matches_thresh = 50;
-    float icpInliersRatio_thesh = 0.1;
-    float position_variance_thesh = 0.0001;
-    float rotation_variance_thresh = 0.0001;
-
-    // Set odominfo.lost based on inliers ratio
-    if (odomInfo.matches < matches_thresh || odomInfo.icpInliersRatio < icpInliersRatio_thesh) {
-        odomInfo.lost = true;
-        ROS_WARN("LOST: Too few inliers: Matches: %d, Inliers ratio: %f", odomInfo.matches, odomInfo.icpInliersRatio);
-    }
-
-    // Calculate sum of position and rotation variance
-    auto P = kf.get_P();
-    double position_variance = P(0, 0) + P(1, 1) + P(2, 2);
-    double rotation_variance = P(3, 3) + P(4, 4) + P(5, 5);
-
-    if (position_variance > position_variance_thesh || rotation_variance > position_variance_thesh) {
-        odomInfo.lost = true;
-        ROS_WARN("High variance: Position variance: %f, Rotation variance: %f", position_variance, rotation_variance);
-    }
+    odomInfo.lost = odometry_lost;
 
     // TODO: Add max speed check, and set odomInfo.lost to true if speed is too high
 
@@ -943,7 +953,7 @@ int main(int argc, char** argv)
                 flg_first_scan = false;
                 continue;
             }
-
+            odometry_lost = is_odometry_lost();
             publish_odometry_info(pubOdomAftMapped, pubOdomInfo);
             odomInfo.lost = false;
 
