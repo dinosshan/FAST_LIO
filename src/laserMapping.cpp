@@ -60,6 +60,7 @@
 #include "preprocess.h"
 #include <ikd-Tree/ikd_Tree.h>
 #include <rtabmap_msgs/OdomInfo.h>
+#include <atomic>
 
 #define INIT_TIME           (0.1)
 #define LASER_POINT_COV     (0.001)
@@ -301,6 +302,7 @@ void standard_pcl_cbk(const sensor_msgs::PointCloud2::ConstPtr &msg)
     sig_buffer.notify_all();
 }
 
+std::atomic<bool> loop_back_error(false);
 double timediff_lidar_wrt_imu = 0.0;
 bool   timediff_set_flg = false;
 void livox_pcl_cbk(const livox_ros_driver2::CustomMsg::ConstPtr &msg) 
@@ -312,6 +314,11 @@ void livox_pcl_cbk(const livox_ros_driver2::CustomMsg::ConstPtr &msg)
     {
         ROS_ERROR("lidar loop back, clear buffer");
         lidar_buffer.clear();
+        // If lidar loop back, set loop_back_error flag and notify all threads to clear buffer
+        loop_back_error = true;
+        sig_buffer.notify_all();
+        mtx_buffer.unlock();
+        return;
     }
     last_timestamp_lidar = msg->header.stamp.toSec();
     
@@ -942,6 +949,18 @@ int main(int argc, char** argv)
     bool status = ros::ok();
     while (status)
     {
+        if (loop_back_error)
+        {
+            ROS_WARN("Mapping stopped due to LiDAR loopback error.");
+            // Pause processing indefinitely
+            while (ros::ok())
+            {
+                ros::spinOnce();
+                rate.sleep();
+            }
+            continue;
+        }
+
         if (flg_exit) break;
         ros::spinOnce();
         if(sync_packages(Measures)) 
