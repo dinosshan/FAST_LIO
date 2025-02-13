@@ -598,7 +598,7 @@ bool is_odometry_lost()
     auto P = kf.get_P();
     double position_variance = P(0, 0) + P(1, 1) + P(2, 2);
     double rotation_variance = P(3, 3) + P(4, 4) + P(5, 5);
-    bool pose_variance_too_large = position_variance > 0.0001 || rotation_variance > 0.0001;
+    bool pose_variance_too_large = position_variance > 0.001 || rotation_variance > 0.001;
     bool inliers_too_few = effct_feat_num < 20 || ((float)effct_feat_num / feats_down_size) < 0.1;
 
     if (pose_variance_too_large) ROS_WARN("Pose variance too large: %lf, %lf", position_variance, rotation_variance);
