@@ -89,6 +89,7 @@ string map_file_path, lid_topic, imu_topic;
 double res_mean_last = 0.05, total_residual = 0.0;
 double last_timestamp_lidar = 0, last_timestamp_imu = -1.0;
 double gyr_cov = 0.1, acc_cov = 0.1, b_gyr_cov = 0.0001, b_acc_cov = 0.0001;
+double position_variance_threshold = 0.001, rotation_variance_threshold = 0.001, min_inliers_threshold = 20, min_icp_inliers_ratio = 0.1;
 double filter_size_corner_min = 0, filter_size_surf_min = 0, filter_size_map_min = 0, fov_deg = 0;
 double cube_len = 0, HALF_FOV_COS = 0, FOV_DEG = 0, total_distance = 0, lidar_end_time = 0, first_lidar_time = 0.0;
 int    effct_feat_num = 0, time_log_counter = 0, scan_count = 0, publish_count = 0;
@@ -598,8 +599,8 @@ bool is_odometry_lost()
     auto P = kf.get_P();
     double position_variance = P(0, 0) + P(1, 1) + P(2, 2);
     double rotation_variance = P(3, 3) + P(4, 4) + P(5, 5);
-    bool pose_variance_too_large = position_variance > 0.001 || rotation_variance > 0.001;
-    bool inliers_too_few = effct_feat_num < 20 || ((float)effct_feat_num / feats_down_size) < 0.1;
+    bool pose_variance_too_large = position_variance > position_variance_threshold || rotation_variance > rotation_variance_threshold;
+    bool inliers_too_few = effct_feat_num < min_inliers_threshold || ((float)effct_feat_num / feats_down_size) < min_icp_inliers_ratio;
 
     if (pose_variance_too_large) ROS_WARN("Pose variance too large: %lf, %lf", position_variance, rotation_variance);
     if (inliers_too_few) ROS_WARN("Too few inliers: %d", effct_feat_num);
@@ -863,6 +864,10 @@ int main(int argc, char** argv)
     nh.param<double>("mapping/acc_cov",acc_cov,0.1);
     nh.param<double>("mapping/b_gyr_cov",b_gyr_cov,0.0001);
     nh.param<double>("mapping/b_acc_cov",b_acc_cov,0.0001);
+    nh.param<double>("mapping/position_variance_threshold", position_variance_threshold, 0.001);
+    nh.param<double>("mapping/rotation_variance_threshold", rotation_variance_threshold, 0.001);
+    nh.param<int>("mapping/min_inliers_threshold", min_inliers_threshold, 20);
+    nh.param<double>("mapping/min_icp_inliers_ratio", min_icp_inliers_ratio, 0.1);
     nh.param<double>("preprocess/blind", p_pre->blind, 0.01);
     nh.param<int>("preprocess/lidar_type", p_pre->lidar_type, AVIA);
     nh.param<int>("preprocess/scan_line", p_pre->N_SCANS, 16);
