@@ -866,7 +866,7 @@ int main(int argc, char** argv)
     nh.param<double>("mapping/b_acc_cov",b_acc_cov,0.0001);
     nh.param<double>("mapping/position_variance_threshold", position_variance_threshold, 0.001);
     nh.param<double>("mapping/rotation_variance_threshold", rotation_variance_threshold, 0.001);
-    nh.param<int>("mapping/min_inliers_threshold", min_inliers_threshold, 20);
+    nh.param<double>("mapping/min_inliers_threshold", min_inliers_threshold, 20);
     nh.param<double>("mapping/min_icp_inliers_ratio", min_icp_inliers_ratio, 0.1);
     nh.param<double>("preprocess/blind", p_pre->blind, 0.01);
     nh.param<int>("preprocess/lidar_type", p_pre->lidar_type, AVIA);
