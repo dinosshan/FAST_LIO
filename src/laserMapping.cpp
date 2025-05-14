@@ -1073,7 +1073,7 @@ int main(int argc, char** argv)
             t5 = omp_get_wtime();
             
             /******* Publish points *******/
-            if (path_en && p_imu->grav_q_init_inv_set)              publish_path(pubPath);
+            if (path_en && !p_imu->imu_need_init_)                  publish_path(pubPath);
             if ((scan_pub_en || pcd_save_en) && dense_pub_en)       publish_frame_world(pubLaserCloudFull);
             if ((scan_pub_en && scan_body_pub_en) && dense_pub_en)  publish_frame_body(pubLaserCloudFull_body);
             // publish_effect_world(pubLaserCloudEffect);
