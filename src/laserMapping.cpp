@@ -551,7 +551,7 @@ void publish_frame_body(const ros::Publisher & pubLaserCloudFull_body)
     sensor_msgs::PointCloud2 laserCloudmsg;
     pcl::toROSMsg(*laserCloudIMUBody, laserCloudmsg);
     laserCloudmsg.header.stamp = ros::Time().fromSec(lidar_end_time);
-    laserCloudmsg.header.frame_id = "body";
+    laserCloudmsg.header.frame_id = "camera_init_gravity";
     pubLaserCloudFull_body.publish(laserCloudmsg);
     publish_count -= PUBFRAME_PERIOD;
 }
@@ -610,10 +610,26 @@ bool is_odometry_lost()
 
 void publish_odometry(const ros::Publisher & pubOdomAftMapped, Eigen::Quaterniond & grav_q_init_inv)
 {
-    odomAftMapped.header.frame_id = "camera_init";
+    odomAftMapped.header.frame_id = "camera_init_gravity";
     odomAftMapped.child_frame_id = "body";
     odomAftMapped.header.stamp = ros::Time().fromSec(lidar_end_time);// ros::Time().fromSec(lidar_end_time);
-    set_posestamp(odomAftMapped.pose);
+
+    // Transform pose to gravity-aligned frame
+    Eigen::Quaterniond q_w_i(geoQuat.w, geoQuat.x, geoQuat.y, geoQuat.z);
+    Eigen::Vector3d t_w_i(state_point.pos(0), state_point.pos(1), state_point.pos(2));
+
+    // Apply gravity alignment transformation
+    Eigen::Quaterniond q_g_i = grav_q_init_inv * q_w_i;
+    Eigen::Vector3d t_g_i = grav_q_init_inv * t_w_i;
+
+    // Set transformed pose
+    odomAftMapped.pose.pose.position.x = t_g_i(0);
+    odomAftMapped.pose.pose.position.y = t_g_i(1);
+    odomAftMapped.pose.pose.position.z = t_g_i(2);
+    odomAftMapped.pose.pose.orientation.w = q_g_i.w();
+    odomAftMapped.pose.pose.orientation.x = q_g_i.x();
+    odomAftMapped.pose.pose.orientation.y = q_g_i.y();
+    odomAftMapped.pose.pose.orientation.z = q_g_i.z();
 
     if (odometry_lost) {
         for (int i = 0; i < 36; i++) odomAftMapped.pose.covariance[i] = 0;
@@ -628,18 +644,6 @@ void publish_odometry(const ros::Publisher & pubOdomAftMapped, Eigen::Quaternion
     }
 
     pubOdomAftMapped.publish(odomAftMapped);
-
-    // Publish a static transform between camera_init_gravity and camera_init
-    static tf2_ros::StaticTransformBroadcaster static_br;
-    geometry_msgs::TransformStamped msg;
-    msg.header.stamp = ros::Time().fromSec(lidar_end_time);
-    msg.header.frame_id = "camera_init_gravity";
-    msg.transform.rotation.x = grav_q_init_inv.x();
-    msg.transform.rotation.y = grav_q_init_inv.y();
-    msg.transform.rotation.z = grav_q_init_inv.z();
-    msg.transform.rotation.w = grav_q_init_inv.w();
-    msg.child_frame_id = "camera_init";
-    static_br.sendTransform(msg);
 
     auto P = kf.get_P();
     for (int i = 0; i < 6; i ++)
@@ -656,15 +660,13 @@ void publish_odometry(const ros::Publisher & pubOdomAftMapped, Eigen::Quaternion
     static tf::TransformBroadcaster br;
     tf::Transform                   transform;
     tf::Quaternion                  q;
-    transform.setOrigin(tf::Vector3(odomAftMapped.pose.pose.position.x, \
-                                    odomAftMapped.pose.pose.position.y, \
-                                    odomAftMapped.pose.pose.position.z));
-    q.setW(odomAftMapped.pose.pose.orientation.w);
-    q.setX(odomAftMapped.pose.pose.orientation.x);
-    q.setY(odomAftMapped.pose.pose.orientation.y);
-    q.setZ(odomAftMapped.pose.pose.orientation.z);
+    transform.setOrigin(tf::Vector3(t_g_i(0), t_g_i(1), t_g_i(2)));
+    q.setW(q_g_i.w());
+    q.setX(q_g_i.x());
+    q.setY(q_g_i.y());
+    q.setZ(q_g_i.z());
     transform.setRotation( q );
-    br.sendTransform( tf::StampedTransform( transform, odomAftMapped.header.stamp, "camera_init", "body" ) );
+    br.sendTransform( tf::StampedTransform( transform, odomAftMapped.header.stamp, "camera_init_gravity", "body"));
 }
 
 void publish_odometry_info(const ros::Publisher & pubOdomAftMapped, const ros::Publisher & pubOdomInfo)
