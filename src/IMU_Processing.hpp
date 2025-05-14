@@ -201,7 +201,7 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
   // Set initial rotation to align gravity
   init_state.rot = q_gravity_align.toRotationMatrix();
   // Set gravity in world frame (aligned with -z axis)
-  init_state.grav = V3D(0, 0, -G_m_s2);
+  init_state.grav = S2(0.0, 0.0, -1.0);  // Using S2 type for unit vector, actual magnitude handled in EKF
   
   //state_inout.rot = Eye3d; // Exp(mean_acc.cross(V3D(0, 0, -1 / scale_gravity)));
   init_state.bg  = mean_gyr;
