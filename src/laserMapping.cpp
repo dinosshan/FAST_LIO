@@ -548,8 +548,26 @@ void publish_frame_body(const ros::Publisher & pubLaserCloudFull_body)
                             &laserCloudIMUBody->points[i]);
     }
 
+    // Transform point cloud from camera_init to camera_init_gravity frame
+    PointCloudXYZI::Ptr laserCloudGravityAligned(new PointCloudXYZI(size, 1));
+    for (int i = 0; i < size; i++)
+    {
+        // Get point in camera_init frame
+        Eigen::Vector3d p_w(laserCloudIMUBody->points[i].x,
+                           laserCloudIMUBody->points[i].y,
+                           laserCloudIMUBody->points[i].z);
+
+        // Transform to gravity-aligned frame
+        Eigen::Vector3d p_g = p_imu->grav_q_init_inv * p_w;
+
+        laserCloudGravityAligned->points[i].x = p_g(0);
+        laserCloudGravityAligned->points[i].y = p_g(1);
+        laserCloudGravityAligned->points[i].z = p_g(2);
+        laserCloudGravityAligned->points[i].intensity = laserCloudIMUBody->points[i].intensity;
+    }
+
     sensor_msgs::PointCloud2 laserCloudmsg;
-    pcl::toROSMsg(*laserCloudIMUBody, laserCloudmsg);
+    pcl::toROSMsg(*laserCloudGravityAligned, laserCloudmsg);
     laserCloudmsg.header.stamp = ros::Time().fromSec(lidar_end_time);
     laserCloudmsg.header.frame_id = "camera_init_gravity";
     pubLaserCloudFull_body.publish(laserCloudmsg);
