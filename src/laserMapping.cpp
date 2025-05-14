@@ -608,11 +608,11 @@ bool is_odometry_lost()
     return inliers_too_few || pose_variance_too_large;
 }
 
-void publish_odometry(const ros::Publisher & pubOdomAftMapped, Eigen::Quaterniond & grav_q_init_inv)
+void publish_odometry(const ros::Publisher & pubOdomAftMapped)
 {
     odomAftMapped.header.frame_id = "camera_init";
     odomAftMapped.child_frame_id = "body";
-    odomAftMapped.header.stamp = ros::Time().fromSec(lidar_end_time);// ros::Time().fromSec(lidar_end_time);
+    odomAftMapped.header.stamp = ros::Time().fromSec(lidar_end_time);
     set_posestamp(odomAftMapped.pose);
 
     if (odometry_lost) {
@@ -628,18 +628,6 @@ void publish_odometry(const ros::Publisher & pubOdomAftMapped, Eigen::Quaternion
     }
 
     pubOdomAftMapped.publish(odomAftMapped);
-
-    // Publish a static transform between camera_init_gravity and camera_init
-    static tf2_ros::StaticTransformBroadcaster static_br;
-    geometry_msgs::TransformStamped msg;
-    msg.header.stamp = ros::Time().fromSec(lidar_end_time);
-    msg.header.frame_id = "camera_init_gravity";
-    msg.transform.rotation.x = grav_q_init_inv.x();
-    msg.transform.rotation.y = grav_q_init_inv.y();
-    msg.transform.rotation.z = grav_q_init_inv.z();
-    msg.transform.rotation.w = grav_q_init_inv.w();
-    msg.child_frame_id = "camera_init";
-    static_br.sendTransform(msg);
 
     auto P = kf.get_P();
     for (int i = 0; i < 6; i ++)
@@ -1077,8 +1065,7 @@ int main(int argc, char** argv)
             double t_update_end = omp_get_wtime();
 
             /******* Publish odometry *******/
-            if (p_imu->grav_q_init_inv_set)
-                publish_odometry(pubOdomAftMapped, p_imu->grav_q_init_inv);
+            publish_odometry(pubOdomAftMapped);
 
             /*** add the feature points to map kdtree ***/
             t3 = omp_get_wtime();

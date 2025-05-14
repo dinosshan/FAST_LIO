@@ -61,12 +61,9 @@ class ImuProcess
   V3D cov_bias_acc;
   double first_lidar_time;
 
-  Eigen::Quaterniond grav_q_init_inv;
-  bool grav_q_init_inv_set = false;
-
  private:
   void IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, int &N);
-  void UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, PointCloudXYZI &pcl_in_out);
+  void UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, PointCloudXYZI &pcl_out);
 
   PointCloudXYZI::Ptr cur_pcl_un_;
   sensor_msgs::ImuConstPtr last_imu_;
@@ -195,7 +192,16 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
     N ++;
   }
   state_ikfom init_state = kf_state.get_x();
-  init_state.grav = S2(- mean_acc / mean_acc.norm() * G_m_s2);
+
+  // Compute the rotation from IMU frame to world frame that aligns gravity
+  V3D gravity_imu = -mean_acc.normalized(); // In IMU frame, acceleration points up
+  V3D gravity_world(0, 0, -1.0); // In world frame, we want gravity along -z
+  // Get rotation that aligns IMU frame's gravity with world frame's gravity
+  Eigen::Quaterniond q_gravity_align = Eigen::Quaterniond::FromTwoVectors(gravity_imu, gravity_world);
+  // Set initial rotation to align gravity
+  init_state.rot = q_gravity_align.toRotationMatrix();
+  // Set gravity in world frame (aligned with -z axis)
+  init_state.grav = V3D(0, 0, -G_m_s2);
   
   //state_inout.rot = Eye3d; // Exp(mean_acc.cross(V3D(0, 0, -1 / scale_gravity)));
   init_state.bg  = mean_gyr;
@@ -212,7 +218,6 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
   init_P(21,21) = init_P(22,22) = 0.00001; 
   kf_state.change_P(init_P);
   last_imu_ = meas.imu.back();
-
 }
 
 void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, PointCloudXYZI &pcl_out)
@@ -235,63 +240,6 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
   state_ikfom imu_state = kf_state.get_x();
   IMUpose.clear();
   IMUpose.push_back(set_pose6d(0.0, acc_s_last, angvel_last, imu_state.vel, imu_state.pos, imu_state.rot.toRotationMatrix()));
-
-  // Compute and publish gravity estimate
-  static tf::TransformBroadcaster br;
-  static unsigned idx = 0;
-  if (!imu_need_init_) {
-    static Eigen::Quaterniond grav_q_init;
-    static bool grav_is_initialized = false;
-    {
-      // Compute rotation that aligns estimated gravity with world Z axis
-      const Eigen::Vector3d grav_e_n =
-          imu_state.grav.get_vect().normalized();
-      const Eigen::Vector3d grav = -Eigen::Vector3d::UnitZ();
-      Eigen::Quaterniond grav_q =
-          Eigen::Quaterniond::FromTwoVectors(grav, grav_e_n).normalized();
-      // Publish current estimate as TF
-      geometry_msgs::TransformStamped msg;
-      msg.header.stamp = v_imu.back()->header.stamp;
-      msg.header.frame_id = "camera_init";
-      msg.transform.translation.x = 0.0;
-      msg.transform.translation.y = 0.0;
-      msg.transform.translation.z = 0.0;
-      msg.transform.rotation.w = grav_q.w();
-      msg.transform.rotation.x = grav_q.x();
-      msg.transform.rotation.y = grav_q.y();
-      msg.transform.rotation.z = grav_q.z();
-      msg.child_frame_id = "gravity_estimate";
-      br.sendTransform(msg);
-      // Store initialization
-      static int cloud_cnt = 0;
-      constexpr int kInitGravityAfterNClouds = 30;
-      if (!grav_is_initialized &&
-          (++cloud_cnt) % kInitGravityAfterNClouds == 0) {
-        ROS_INFO_STREAM(
-            "Pinned gravity_init after " << cloud_cnt << " frames.");
-        grav_q_init = grav_q;
-        grav_is_initialized = true;
-        grav_q_init_inv = grav_q.inverse();
-        grav_q_init_inv_set = true;
-      }
-    }
-    // Republish grav initialization as static TF
-    if (grav_is_initialized) {
-      static tf2_ros::StaticTransformBroadcaster static_br;
-      geometry_msgs::TransformStamped msg;
-      msg.header.stamp = v_imu.back()->header.stamp;
-      msg.header.frame_id = "camera_init";
-      msg.transform.translation.x = 0.0;
-      msg.transform.translation.y = 0.0;
-      msg.transform.translation.z = 0.0;
-      msg.transform.rotation.w = grav_q_init.w();
-      msg.transform.rotation.x = grav_q_init.x();
-      msg.transform.rotation.y = grav_q_init.y();
-      msg.transform.rotation.z = grav_q_init.z();
-      msg.child_frame_id = "gravity_init";
-      static_br.sendTransform(msg);
-    }
-  }
 
   /*** forward propagation at each imu point ***/
   V3D angvel_avr, acc_avr, acc_imu, vel_imu, pos_imu;
